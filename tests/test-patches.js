@@ -259,51 +259,57 @@ function testZodVariable() {
     const code = fs.readFileSync(PATCHED_EXT, 'utf8');
     const lines = code.split('\n');
 
-    // Find module-level zod: var e = {}; followed by string: () => ...
-    const zodDefLine = lines.findIndex(l => /^var e = \{\};$/.test(l.trim()));
-    assert('module-level zod "e" exists',
-        zodDefLine !== -1,
-        `Expected "var e = {};" at module level`);
+    // The minified zod alias is renamed every few upstream releases
+    // (`s` in v2.1.42, `e` in v2.1.71, `j4` in v2.1.112). Find whichever
+    // module-level `var X = {};` is followed by zod-shaped lazy exports.
+    let zodVar = null;
+    let zodDefLine = -1;
+    for (let i = 0; i < lines.length; i++) {
+        const m = lines[i].trim().match(/^var (\w+) = \{\};$/);
+        if (!m) continue;
+        const next = lines.slice(i, i + 30).join('\n');
+        if (next.includes('string:') && next.includes('number:') && next.includes('object:')) {
+            zodVar = m[1];
+            zodDefLine = i;
+            break;
+        }
+    }
+    assert('module-level zod alias exists',
+        zodVar !== null,
+        'Expected a `var X = {};` followed by lazy string/number/object exports');
 
-    if (zodDefLine !== -1) {
-        // Check that next few lines contain zod exports (lazy: `string: () => ...`)
-        const nextLines = lines.slice(zodDefLine, zodDefLine + 30).join('\n');
-        assert('zod "e" has string/number/object exports',
-            nextLines.includes('string:') && nextLines.includes('number:') && nextLines.includes('object:'),
-            'Expected zod-like exports near var e = {}');
+    if (zodVar !== null) {
+        assert(`zod "${zodVar}" has string/number/object exports`,
+            true,
+            '(verified during discovery above)');
     }
 
-    // Patch 08: registerTools must use "e" (module-level zod), NOT "s" or "N"
+    // Patch 08: registerTools must pass the module-level zod alias, NOT some
+    // unrelated single-letter var (`s` from v2.1.42, `N` = stream class, etc.).
     const registerLine = lines.find(l => l.includes('_remoteTools2.registerTools('));
     assert('Patch 08 registerTools found',
         !!registerLine,
         'Expected _remoteTools2.registerTools call');
 
-    if (registerLine) {
-        // Extract the second argument (zod param)
+    if (registerLine && zodVar) {
         const match = registerLine.match(/_remoteTools2\.registerTools\(\w+\.instance,\s*(\w+),/);
-        assert('Patch 08 zod argument is "e" (module-level)',
-            match && match[1] === 'e',
-            `Expected "e" but got "${match ? match[1] : 'NOT FOUND'}"`);
-
-        // Verify it's NOT the old broken values
-        assert('Patch 08 zod is NOT "s" (v2.1.42 hardcode)',
-            !match || match[1] !== 's',
-            'Bug: still using hardcoded "s" from v2.1.42');
+        assert(`Patch 08 zod argument is "${zodVar}" (module-level)`,
+            match && match[1] === zodVar,
+            `Expected "${zodVar}" but got "${match ? match[1] : 'NOT FOUND'}"`);
         assert('Patch 08 zod is NOT "N" ($1 stream, not zod)',
             !match || match[1] !== 'N',
             'Bug: "N" is new $1 (stream class), not zod');
     }
 
-    // Patch 04: registerTools should also use "e" for WebSocket server
+    // Patch 04: registerTools should pass the same module-level zod alias.
     const wsRegisterLine = lines.find(l =>
         l.includes('_remoteTools.registerTools(') && !l.includes('_remoteTools2'));
-    if (wsRegisterLine) {
+    if (wsRegisterLine && zodVar) {
         const match = wsRegisterLine.match(/_remoteTools\.registerTools\(\w+,\s*(\w+),/);
-        assert('Patch 04 zod argument is "e"',
-            match && match[1] === 'e',
-            `Expected "e" but got "${match ? match[1] : 'NOT FOUND'}"`);
-    } else {
+        assert(`Patch 04 zod argument is "${zodVar}"`,
+            match && match[1] === zodVar,
+            `Expected "${zodVar}" but got "${match ? match[1] : 'NOT FOUND'}"`);
+    } else if (!wsRegisterLine) {
         skip('Patch 04 registerTools check', 'WebSocket registerTools line not found');
     }
 
@@ -537,12 +543,26 @@ function testInstalledExtension() {
         assert(`installed: ${f} exists`, fs.existsSync(fp));
     }
 
-    // Verify the installed extension.js has the zod fix
+    // Verify the installed extension.js has the zod fix. We don't hardcode the
+    // expected alias (it was `s` → `e` → `j4` across releases) — instead we
+    // discover whichever `var X = {};` is followed by zod-shaped lazy exports
+    // and verify patch-08 passes that same alias.
     const installedExt = fs.readFileSync(path.join(installedDir, 'extension.js'), 'utf8');
+    const installedLines = installedExt.split('\n');
+    let installedZodVar = null;
+    for (let i = 0; i < installedLines.length; i++) {
+        const m = installedLines[i].trim().match(/^var (\w+) = \{\};$/);
+        if (!m) continue;
+        const next = installedLines.slice(i, i + 30).join('\n');
+        if (next.includes('string:') && next.includes('number:') && next.includes('object:')) {
+            installedZodVar = m[1];
+            break;
+        }
+    }
     const registerLine = installedExt.match(/_remoteTools2\.registerTools\(\w+\.instance,\s*(\w+),/);
-    assert('installed ext: Patch 08 zod = "e"',
-        registerLine && registerLine[1] === 'e',
-        `Expected "e", got "${registerLine ? registerLine[1] : 'NOT FOUND'}"`);
+    assert(`installed ext: Patch 08 zod matches module-level alias "${installedZodVar}"`,
+        installedZodVar && registerLine && registerLine[1] === installedZodVar,
+        `Expected "${installedZodVar}", got "${registerLine ? registerLine[1] : 'NOT FOUND'}"`);
 
     // Verify package.json
     const pkg = JSON.parse(fs.readFileSync(path.join(installedDir, 'package.json'), 'utf8'));

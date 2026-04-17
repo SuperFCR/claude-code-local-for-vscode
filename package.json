@@ -2,7 +2,7 @@
 	"name": "claude-code-local",
 	"displayName": "Claude Code Local for VS Code",
 	"description": "Claude Code for VS Code: Harness the power of Claude Code without leaving your IDE",
-	"version": "2.1.71",
+	"version": "2.1.112",
 	"publisher": "justimyhxu",
 	"license": "© Anthropic PBC. All rights reserved. Use is subject to the Legal Agreements outlined here: https://code.claude.com/docs/en/legal-and-compliance.",
 	"bugs": {
@@ -33,11 +33,6 @@
 		"configuration": {
 			"title": "Claude Code",
 			"properties": {
-				"claudeCode.selectedModel": {
-					"type": "string",
-					"default": "default",
-					"description": "The AI model for Claude Code."
-				},
 				"claudeCode.environmentVariables": {
 					"type": "array",
 					"items": {
@@ -119,7 +114,7 @@
 				},
 				"claudeCode.enableNewConversationShortcut": {
 					"type": "boolean",
-					"default": true,
+					"default": false,
 					"description": "Use the Cmd/Ctrl+N keyboard shortcut to start a new conversation when Claude is focused."
 				},
 				"claudeCode.hideOnboarding": {
@@ -210,6 +205,10 @@
 			{
 				"command": "claude-vscode.window.open",
 				"title": "Claude Code: Open in New Window"
+			},
+			{
+				"command": "claude-vscode.createWorktree",
+				"title": "Claude Code: Create Worktree"
 			},
 			{
 				"command": "claude-vscode.sidebar.open",
@@ -435,7 +434,7 @@
 					{
 						"id": "sessions",
 						"title": "Past conversations",
-						"description": "Click the Past Conversations button at the top or type /resume to browse past sessions. You can start a new conversation anytime by pressing Ctrl+N (Cmd+N).",
+						"description": "Click the Past Conversations button at the top or type /resume to browse past sessions. You can start a new conversation anytime by clicking the New Chat button.",
 						"media": {
 							"markdown": "resources/walkthrough/step4.md"
 						}
@@ -488,6 +487,10 @@
 				{
 					"command": "claude-vscode.primaryEditor.open",
 					"when": "claude-vscode.primaryEditorEnabled"
+				},
+				{
+					"command": "claude-vscode.createWorktree",
+					"when": "claude-vscode.createWorktreeEnabled"
 				},
 				{
 					"command": "claude-vscode.blur",

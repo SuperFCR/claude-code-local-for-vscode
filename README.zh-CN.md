@@ -4,7 +4,7 @@
 
 > 一个扩展，两种模式：为无网络的服务器**本地运行** Claude Code，或为有网络的服务器**远程运行**——与官方扩展完全一致——由一个设置控制。
 
-**基础版本**: Claude Code VS Code Extension v2.1.71 (Anthropic)
+**基础版本**: Claude Code VS Code Extension v2.1.112 (Anthropic)
 **平台**: macOS ARM64 + Linux x86-64（双平台二进制）
 **状态**: 功能正常 -- 所有核心工具已验证通过
 
@@ -153,14 +153,14 @@ npm install
 
 **方式 A：自动从官方版本更新（推荐）**
 
-自动下载固定版本（v2.1.71）的官方 VSIX，提取二进制和 webview 资源，美化代码，应用所有 patch，打包并安装：
+自动下载固定版本（v2.1.112）的官方 VSIX，提取二进制和 webview 资源，美化代码，应用所有 patch，打包并安装：
 
 ```bash
 # 一步完成：构建 + 安装
 npm run update -- --install
 
 # 也可以指定版本
-npm run update -- --version 2.1.71 --install
+npm run update -- --version 2.1.112 --install
 ```
 
 其他常用参数：
@@ -353,7 +353,7 @@ PreToolUse/PostToolUse 钩子在编辑后检测新的 IDE 错误，并向 Claude
 | **仅支持 Linux x64 远程** | 远程模式使用 Linux x86-64 二进制。暂不支持 ARM64 Linux 服务器。 |
 | **Glob 行号在 100 处换行** | 原始 webview 的外观问题 — 非本补丁引入。 |
 | **API 403 遥测错误** | CLI 遥测事件返回 403 错误（不同的扩展 ID）。不影响功能。 |
-| **扩展版本锁定** | 基于 v2.1.71。使用 `npm run update` 自动将补丁应用到新版本。 |
+| **扩展版本锁定** | 基于 v2.1.112。使用 `npm run update` 自动将补丁应用到新版本。 |
 | **模式切换需要重新加载** | 修改 `forceLocal` 需要 VS Code 重新加载，因为 `extensionKind` 是静态清单属性。 |
 
 ---
@@ -367,7 +367,7 @@ CLI 二进制必须与扩展版本严格匹配——扩展与 CLI 之间的内�
 如果你想节省磁盘空间，可以用符号链接替代，但**版本必须完全一致**：
 
 ```bash
-# 仅当你安装的 claude 版本与 v2.1.71 完全匹配时
+# 仅当你安装的 claude 版本与 v2.1.112 完全匹配时
 ln -sf $(which claude) resources/native-binaries/darwin-arm64/claude
 ```
 
@@ -395,10 +395,10 @@ npm run update -- --install
 
 ### 新版 Claude Code 发布后如何更新？
 
-默认的 `npm run update` 会下载**固定版本**（v2.1.71），所有补丁均基于此版本测试。要尝试更新的版本，请显式传入 `--version`：
+默认的 `npm run update` 会下载**固定版本**（v2.1.112），所有补丁均基于此版本测试。要尝试更新的版本，请显式传入 `--version`：
 
 ```bash
-# 默认：固定版本 v2.1.71（补丁保证可应用）
+# 默认：固定版本 v2.1.112（补丁保证可应用）
 node scripts/update.js --install
 
 # 显式指定新版本（补丁可能需要更新）
@@ -479,6 +479,18 @@ claude-code-vscode/
 ---
 
 ## 11. 更新日志
+
+### v2.1.112（2026-04）
+- **基础版本升级**：从 Claude Code v2.1.71 升级到 v2.1.112（跨 41 个上游版本）
+- **Patch 10A 适配**：v2.1.112 改写了 io_message 发送循环 —— 原本单行 `for await (...) this.send({...})`
+  拆成了块结构，并新增 `bridge_state` 分支；后处理器调用去掉了尾部分号
+  （`), _a(L)` 替代 `), jP(D);`）。anchor 从 for-await+send 合并行移到单独的
+  `this.send({` 点，仅替换 6 行的 send 块，保留 for-await 和 bridge_state 逻辑不动。
+- **Patch 15 适配**：`getHtmlForWebview` 模板变化 —— 新增 `#claude-error` CSS 块把
+  `</style>` 推得更远（patch-15a 的 `searchRange: 10 → 30`）；camelCase 的 `initialPrompt`
+  换成连字符形式 `data-initial-prompt`（patch-15b context 正则扩展）；patch-15c 改为
+  anchor 到始终存在的 `window.IS_SIDEBAR`，dry-run 不再依赖 patch-15b 先应用。
+- **Dry-run 21/21 全过**，139 个单元测试全部通过。
 
 ### v2.1.71（2026-03）
 - **基础版本升级**：从 Claude Code v2.1.42 升级到 v2.1.71

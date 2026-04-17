@@ -24,7 +24,11 @@ module.exports = {
         // Replace it + the getAdditionalMcpServers line to break the let chain
         pattern: /\}\),\s*$/,
         relation: 'replace',
-        replaceLines: 2
+        replaceLines: 2,
+        // Widen the detectVars window so we can pick up the zod alias used in
+        // launchClaude's bundle. In v2.1.112 the nearest zod `.string().nullable()`
+        // / `var WR4 = j4.object({` usages sit ~150 lines above the anchor.
+        contextRange: 200
     },
 
     detectVars: (ctx) => {
@@ -39,12 +43,20 @@ module.exports = {
         const permMatch = ctx.match(/spawnClaude\(\w+, \w+, [\s\S]*?, \w+, (\w+),/);
         // Detect the getAdditionalMcpServers result var (O in v2.1.71)
         const addMcpMatch = ctx.match(/([\w$]+) = this\.getAdditionalMcpServers\(\)/);
+        // Detect the bundled zod alias. In v2.1.71 this was module-level `e`;
+        // in v2.1.112 it was renamed to `j4`. We look for any of the distinctive
+        // zod call shapes that appear near launchClaude's schema declarations.
+        const zodMatch =
+            ctx.match(/(\w+)\.string\(\)\.(?:nullable|optional|describe)\(/) ||
+            ctx.match(/(\w+)\.record\(\w+\.string\(\), \w+\.union\(/) ||
+            ctx.match(/var \w+ = (\w+)\.object\(\{/);
         return {
             serverVar: serverMatch ? serverMatch[1] : 'x',
             channelVar: channelMatch ? channelMatch[1] : 'z',
             mdCheckFn: mdCheckMatch ? mdCheckMatch[1] : 'ev',
             permVar: permMatch ? permMatch[1] : 'U',
-            addMcpVar: addMcpMatch ? addMcpMatch[1] : 'O'
+            addMcpVar: addMcpMatch ? addMcpMatch[1] : 'O',
+            zodVar: zodMatch ? zodMatch[1] : 'e'
         };
     },
 
@@ -129,10 +141,10 @@ module.exports = {
                             return { accepted: false };
                         }
                     };
-                    // 'e' is the module-level zod schema (var e = {}; ... string: () => ...).
-                    // Same variable used by Patch 04 (Ri/Ml WebSocket MCP). Not a local
-                    // launchClaude var — it's the bundled zod library object.
-                    _remoteTools2.registerTools(${vars.serverVar}.instance, e, this.output || this.logger, _fileUpdatedCb, _reviewEdit);
+                    // zodVar is the module-level zod schema alias (var j4 = {}; ... string: () => ...
+                    // in v2.1.112; it was 'e' in v2.1.71 and 's' in v2.1.42). Detected dynamically
+                    // from the surrounding context so this patch survives minifier renames.
+                    _remoteTools2.registerTools(${vars.serverVar}.instance, ${vars.zodVar}, this.output || this.logger, _fileUpdatedCb, _reviewEdit);
                     (this.output || this.logger).info("forceLocal: registered remote tools on in-process MCP server. Tools: " + Object.keys(${vars.serverVar}.instance._registeredTools).length);
                 } catch (_rtErr2) {
                     (this.output || this.logger).error("forceLocal: FAILED to register remote tools on in-process MCP server: " + (_rtErr2.message || _rtErr2));

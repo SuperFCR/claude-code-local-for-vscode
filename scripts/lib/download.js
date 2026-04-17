@@ -7,7 +7,7 @@ const fs = require('fs');
 
 const MARKETPLACE_API = 'https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery';
 const EXTENSION_ID = 'anthropic.claude-code';
-const DEFAULT_VERSION = '2.1.71';
+const DEFAULT_VERSION = '2.1.112';
 
 const SOURCES = {
     marketplace: {
