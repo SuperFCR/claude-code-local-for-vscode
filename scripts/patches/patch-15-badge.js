@@ -16,12 +16,18 @@ module.exports = [
 
         anchor: {
             pattern: /--vscode-chat-font-family:/,
-            context: /getHtmlForWebview|<\/style>/,
+            // In v2.1.112 the closing </style> is ~20 lines below the anchor,
+            // outside the default ±15 window. Widen contextRange and rely on a
+            // neighbouring CSS variable (4 lines above) for disambiguation.
+            context: /--vscode-editor-font-family|<\/style>/,
+            contextRange: 25,
             hint: ':root CSS variables in getHtmlForWebview template'
         },
 
         insertAt: {
-            searchRange: 10,
+            // In v2.1.112 the </style> closing tag is ~20 lines below the anchor
+            // (extra CSS blocks for #claude-error were added). Widen the search.
+            searchRange: 30,
             // The </style> closing tag after :root CSS
             pattern: /<\/style>/,
             relation: 'before'
@@ -54,7 +60,11 @@ module.exports = [
 
         anchor: {
             pattern: /window\.IS_SIDEBAR/,
-            context: /initialConfiguration|initialPrompt/,
+            // In v2.1.112 the `initialPrompt` / `initialConfiguration` camelCase
+            // strings were replaced by hyphenated `data-initial-prompt` etc.
+            // Match either the old camelCase or a neighbouring script-block
+            // sibling (`IS_FULL_EDITOR`) which is always present.
+            context: /IS_FULL_EDITOR|initialConfiguration|initialPrompt|data-initial-prompt/,
             hint: 'window.IS_SIDEBAR in webview script block'
         },
 
@@ -76,13 +86,15 @@ module.exports = [
 
         appliedCheck: /__force-local-badge/,
 
-        // Note: depends on patch-15b being applied first (dry-run may report failure)
         dependsOn: 'patch-15b',
 
         anchor: {
-            pattern: /window\.FORCE_LOCAL_MODE/,
-            context: /IS_SIDEBAR/,
-            hint: 'After window.FORCE_LOCAL_MODE variable injection (from patch-15b)'
+            // Anchor on the always-present `window.IS_SIDEBAR` line instead of the
+            // patch-15b-injected `window.FORCE_LOCAL_MODE` line, so dry-run (which
+            // doesn't actually apply patch-15b) can still locate the site.
+            pattern: /window\.IS_SIDEBAR/,
+            context: /IS_FULL_EDITOR/,
+            hint: 'Script block containing window.IS_SIDEBAR / window.FORCE_LOCAL_MODE'
         },
 
         insertAt: {

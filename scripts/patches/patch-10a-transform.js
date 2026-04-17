@@ -2,9 +2,28 @@
 
 /**
  * Patch 10A: Transform MCP tool names to built-in names for webview rendering.
+ *
  * Two parts:
- *  1. Insert the _transformForWebview function before the for-await loop
- *  2. Replace the loop body to use _transformForWebview
+ *  1. patch-10a        — insert the `_transformForWebview` helper just before the
+ *                        io_message for-await loop in launchClaude.
+ *  2. patch-10a-loop   — replace the `this.send({ type: "io_message", ... })` emit
+ *                        block so it sends the transformed message and passes the
+ *                        transformed message to the post-processor.
+ *
+ * Notes on version compatibility:
+ *   In v2.1.112 the for-await loop was expanded into a block and a `bridge_state`
+ *   branch was added before the `this.send({...})` call:
+ *
+ *     for await (let L of z) {
+ *       if (L.type === "system" && L.subtype === "bridge_state") { ... continue }
+ *       this.send({ type: "io_message", channelId: K, message: L, done: !1 }), _a(L)
+ *     }
+ *
+ *   We therefore anchor patch-10a-loop on the `this.send({` line (not the for-await
+ *   line as in earlier versions), use the surrounding `io_message` context to
+ *   disambiguate from the unrelated speech-to-text and request emitters, and
+ *   replace only the 6 send lines while leaving the for-await / bridge_state code
+ *   untouched.
  */
 
 const patch10aFunc = {
@@ -14,15 +33,19 @@ const patch10aFunc = {
     appliedCheck: /_transformForWebview/,
 
     anchor: {
-        // The for-await loop that sends io_messages in launchClaude
-        pattern: /for await \(let \w+ of \w+\) this\.send\(\{/,
+        // The for-await loop that drives io_message emission in launchClaude.
+        pattern: /for await \(let \w+ of \w+\)/,
         context: /io_message/,
+        // In v2.1.112 the `type: "io_message"` line sits ~16 lines below the
+        // for-await line (because of the new bridge_state branch), so the default
+        // ±15 context window is too tight — widen it.
+        contextRange: 30,
         hint: 'for-await loop in launchClaude that sends io_messages'
     },
 
     insertAt: {
         searchRange: 5,
-        pattern: /for await \(let \w+ of \w+\) this\.send\(\{/,
+        pattern: /for await \(let \w+ of \w+\)/,
         relation: 'before'
     },
 
@@ -30,9 +53,9 @@ const patch10aFunc = {
         const forMatch = ctx.match(/for await \(let (\w+) of (\w+)\)/);
         const chMatch = ctx.match(/channelId:\s*(\w+)/);
         return {
-            iterVar: forMatch ? forMatch[1] : 'D',
-            queryVar: forMatch ? forMatch[2] : 'J',
-            channelVar: chMatch ? chMatch[1] : 'v'
+            iterVar: forMatch ? forMatch[1] : 'L',
+            queryVar: forMatch ? forMatch[2] : 'z',
+            channelVar: chMatch ? chMatch[1] : 'K'
         };
     },
 
@@ -76,45 +99,47 @@ const patch10aLoop = {
     id: 'patch-10a-loop',
     name: 'io_message loop body transform',
 
-    appliedCheck: /var _D = _transformForWebview/,
+    // Match any iterVar (e.g. _D in v2.1.71, _L in v2.1.112).
+    appliedCheck: /var _\w+ = _transformForWebview\(\w+\)/,
 
     anchor: {
-        // The for-await line that sends io_messages (may be single-line or multi-line)
-        pattern: /for await \(let \w+ of \w+\) this\.send\(\{/,
+        // The `this.send({` call inside the io_message for-await loop body.
+        // Only one of the 20 `this.send({` sites in extension.js has `io_message`
+        // nearby, so the context check uniquely disambiguates it.
+        pattern: /this\.send\(\{/,
         context: /io_message/,
-        hint: 'for-await loop sending io_messages'
+        hint: 'this.send({type:"io_message",...}) inside launchClaude for-await loop'
     },
 
     insertAt: {
         searchRange: 5,
-        pattern: /for await \(let \w+ of \w+\) this\.send\(\{/,
+        pattern: /this\.send\(\{/,
         relation: 'replace',
-        replaceLines: 6  // replace the for-await + this.send block
+        // Six lines: `this.send({`, `type:`, `channelId:`, `message:`, `done:`, `}), _a(L)`.
+        replaceLines: 6
     },
 
     detectVars: (ctx) => {
         const forMatch = ctx.match(/for await \(let (\w+) of (\w+)\)/);
         const chMatch = ctx.match(/channelId:\s*(\w+)/);
-        // Detect post-processor function (jP in v2.1.71, sb in v2.1.42)
-        const postMatch = ctx.match(/\), (\w+)\(\w+\);/);
+        // Post-processor call after the send, e.g. `}), _a(L)` in v2.1.112 or
+        // `}), jP(D);` in older minifications. Trailing semicolon is optional.
+        const postMatch = ctx.match(/\), (\w+)\(\w+\);?/);
         return {
-            iterVar: forMatch ? forMatch[1] : 'G',
-            queryVar: forMatch ? forMatch[2] : 'q',
-            channelVar: chMatch ? chMatch[1] : 'z',
-            postFn: postMatch ? postMatch[1] : 'jP'
+            iterVar: forMatch ? forMatch[1] : 'L',
+            queryVar: forMatch ? forMatch[2] : 'z',
+            channelVar: chMatch ? chMatch[1] : 'K',
+            postFn: postMatch ? postMatch[1] : '_a'
         };
     },
 
-    generate: (vars) => `                    for await (let ${vars.iterVar} of ${vars.queryVar}) {
-                        var _${vars.iterVar} = _transformForWebview(${vars.iterVar});
-                        this.send({
-                            type: "io_message",
-                            channelId: ${vars.channelVar},
-                            message: _${vars.iterVar},
-                            done: !1
-                        });
-                        ${vars.postFn}(_${vars.iterVar});
-                    }`
+    generate: (vars) => `                            var _${vars.iterVar} = _transformForWebview(${vars.iterVar});
+                            this.send({
+                                type: "io_message",
+                                channelId: ${vars.channelVar},
+                                message: _${vars.iterVar},
+                                done: !1
+                            }), ${vars.postFn}(_${vars.iterVar})`
 };
 
 module.exports = [patch10aFunc, patch10aLoop];
