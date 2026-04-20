@@ -25,10 +25,11 @@ module.exports = {
         pattern: /\}\),\s*$/,
         relation: 'replace',
         replaceLines: 2,
-        // Widen the detectVars window so we can pick up the zod alias used in
-        // launchClaude's bundle. In v2.1.112 the nearest zod `.string().nullable()`
-        // / `var WR4 = j4.object({` usages sit ~150 lines above the anchor.
-        contextRange: 200
+        // Enlarge detectVars context so zodVar detection can reach the zod
+        // definition / usage sites, which live in Ri() ~3.5k lines away from
+        // this patch's anchor in launchClaude. A value larger than the file
+        // length effectively hands the entire source to detectVars.
+        contextRange: 100000
     },
 
     detectVars: (ctx) => {
@@ -38,23 +39,34 @@ module.exports = {
         const channelMatch = ctx.match(/channelId:\s*(\w+)/);
         // Detect markdown plan check function (ev in v2.1.71, Dz in v2.1.42)
         const mdCheckMatch = ctx.match(/if \((\w+)\(\w+\)\)[\s\S]*?openMarkdownPreview/);
-        // Detect permission mode param (U in v2.1.71, N in v2.1.42)
-        // It's passed to spawnClaude as the 6th arg
-        const permMatch = ctx.match(/spawnClaude\(\w+, \w+, [\s\S]*?, \w+, (\w+),/);
+        // Detect permission mode param — 4th parameter of launchClaude().
+        //   v2.1.71:  async launchClaude(W, V, j, U, H) → U
+        //   v2.1.112: async launchClaude(K, V, j, G, H) → G
+        // Primary: match the function signature directly (authoritative).
+        // Fallback: the old spawnClaude() callsite heuristic (kept for out-of-range contexts).
+        // Safety net: literal 'undefined' — guarantees the generated code never
+        //   throws ReferenceError even if both detections miss. `undefined || x || y`
+        //   is a valid JS expression that falls through to the next operand.
+        const launchSigMatch = ctx.match(/async\s+launchClaude\s*\(\s*\w+\s*,\s*\w+\s*,\s*\w+\s*,\s*(\w+)\s*,/);
+        const spawnMatch = ctx.match(/spawnClaude\(\w+,\s*\w+,[\s\S]*?,\s*\w+,\s*(\w+),/);
+        const permVar = (launchSigMatch && launchSigMatch[1])
+            || (spawnMatch && spawnMatch[1])
+            || 'undefined';
         // Detect the getAdditionalMcpServers result var (O in v2.1.71)
         const addMcpMatch = ctx.match(/([\w$]+) = this\.getAdditionalMcpServers\(\)/);
-        // Detect the bundled zod alias. In v2.1.71 this was module-level `e`;
-        // in v2.1.112 it was renamed to `j4`. We look for any of the distinctive
-        // zod call shapes that appear near launchClaude's schema declarations.
-        const zodMatch =
-            ctx.match(/(\w+)\.string\(\)\.(?:nullable|optional|describe)\(/) ||
-            ctx.match(/(\w+)\.record\(\w+\.string\(\), \w+\.union\(/) ||
-            ctx.match(/var \w+ = (\w+)\.object\(\{/);
+        // Detect the module-level zod schema variable name. Minifier renames it
+        // across versions (s→e→j4). Identify by its usage pattern
+        // `<var>.string().describe(...)` — stable across all versions.
+        // `ctx` here is limited to ~±100 lines around the anchor, so `.describe()`
+        // calls from nearby tool definitions are what we match. If none appear
+        // in range, fall back to the full-file scan (done by the caller pipeline
+        // via `globalCtx` if provided; else use 'e' as legacy default).
+        const zodMatch = ctx.match(/(\w+)\.string\(\)\.describe\(/);
         return {
             serverVar: serverMatch ? serverMatch[1] : 'x',
             channelVar: channelMatch ? channelMatch[1] : 'z',
             mdCheckFn: mdCheckMatch ? mdCheckMatch[1] : 'ev',
-            permVar: permMatch ? permMatch[1] : 'U',
+            permVar: permVar,
             addMcpVar: addMcpMatch ? addMcpMatch[1] : 'O',
             zodVar: zodMatch ? zodMatch[1] : 'e'
         };
@@ -141,9 +153,10 @@ module.exports = {
                             return { accepted: false };
                         }
                     };
-                    // zodVar is the module-level zod schema alias (var j4 = {}; ... string: () => ...
-                    // in v2.1.112; it was 'e' in v2.1.71 and 's' in v2.1.42). Detected dynamically
-                    // from the surrounding context so this patch survives minifier renames.
+                    // zodVar is the module-level zod schema — renamed across versions:
+                    //   v2.1.42: 's'   v2.1.71: 'e'   v2.1.112: 'j4'
+                    // Detected dynamically by detectVars via the .string().describe(...) usage
+                    // pattern (same discriminator Patch 04 uses).
                     _remoteTools2.registerTools(${vars.serverVar}.instance, ${vars.zodVar}, this.output || this.logger, _fileUpdatedCb, _reviewEdit);
                     (this.output || this.logger).info("forceLocal: registered remote tools on in-process MCP server. Tools: " + Object.keys(${vars.serverVar}.instance._registeredTools).length);
                 } catch (_rtErr2) {

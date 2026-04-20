@@ -16,19 +16,17 @@ module.exports = [
 
         anchor: {
             pattern: /--vscode-chat-font-family:/,
-            // In v2.1.112 the closing </style> is ~20 lines below the anchor,
-            // outside the default ±15 window. Widen contextRange and rely on a
-            // neighbouring CSS variable (4 lines above) for disambiguation.
-            context: /--vscode-editor-font-family|<\/style>/,
+            // v2.1.112 has extra CSS rules between `:root` and `</style>`,
+            // pushing `</style>` outside the default 15-line context window.
+            // Accept any of the nearby structural markers.
+            context: /<style>|<\/style>|getHtmlForWebview|:root/,
             contextRange: 25,
             hint: ':root CSS variables in getHtmlForWebview template'
         },
 
         insertAt: {
-            // In v2.1.112 the </style> closing tag is ~20 lines below the anchor
-            // (extra CSS blocks for #claude-error were added). Widen the search.
+            // Widened so `</style>` is reachable past intervening CSS rules.
             searchRange: 30,
-            // The </style> closing tag after :root CSS
             pattern: /<\/style>/,
             relation: 'before'
         },
@@ -60,11 +58,11 @@ module.exports = [
 
         anchor: {
             pattern: /window\.IS_SIDEBAR/,
-            // In v2.1.112 the `initialPrompt` / `initialConfiguration` camelCase
-            // strings were replaced by hyphenated `data-initial-prompt` etc.
-            // Match either the old camelCase or a neighbouring script-block
-            // sibling (`IS_FULL_EDITOR`) which is always present.
-            context: /IS_FULL_EDITOR|initialConfiguration|initialPrompt|data-initial-prompt/,
+            // v2.1.71 had `initialConfiguration`/`initialPrompt` nearby.
+            // v2.1.112 uses `data-initial-prompt` (with dash) and sibling
+            // `window.IS_FULL_EDITOR` / `window.IS_SESSION_LIST_ONLY` flags.
+            // Accept any of these markers.
+            context: /initial[-_]?[Cc]onfiguration|initial[-_]?[Pp]rompt|IS_FULL_EDITOR|IS_SESSION_LIST_ONLY/,
             hint: 'window.IS_SIDEBAR in webview script block'
         },
 
@@ -86,15 +84,13 @@ module.exports = [
 
         appliedCheck: /__force-local-badge/,
 
+        // Note: depends on patch-15b being applied first (dry-run may report failure)
         dependsOn: 'patch-15b',
 
         anchor: {
-            // Anchor on the always-present `window.IS_SIDEBAR` line instead of the
-            // patch-15b-injected `window.FORCE_LOCAL_MODE` line, so dry-run (which
-            // doesn't actually apply patch-15b) can still locate the site.
-            pattern: /window\.IS_SIDEBAR/,
-            context: /IS_FULL_EDITOR/,
-            hint: 'Script block containing window.IS_SIDEBAR / window.FORCE_LOCAL_MODE'
+            pattern: /window\.FORCE_LOCAL_MODE/,
+            context: /IS_SIDEBAR/,
+            hint: 'After window.FORCE_LOCAL_MODE variable injection (from patch-15b)'
         },
 
         insertAt: {
